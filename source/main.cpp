@@ -1,5 +1,5 @@
 #define _SDL_main_h
-#include <SDL/SDL.h>
+#include <SDL.h>
 
 #include <cassert>
 #include <cstdint>
@@ -59,8 +59,8 @@ struct app_t {
       mat_.transform(3, pre.data(), post.data());
 
       for (auto &v : post) {
-        v.x = 256 + v.x * 3.f;
-        v.y = 256 + v.y * 3.f;
+        v.x = 256 + v.x * 4.5f;
+        v.y = 256 + v.y * 4.5f;
 #if 0
         plot(v.x, v.y);
 #endif

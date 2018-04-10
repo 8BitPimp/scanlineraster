@@ -1,5 +1,5 @@
 #define _SDL_main_h
-#include <SDL/SDL.h>
+#include <SDL.h>
 
 #include <array>
 #include <cassert>
@@ -94,9 +94,9 @@ constexpr float dot(const vec2f_t &a, const vec2f_t &b) {
 // plot a pixel to the screen
 void plot(SDL_Surface *surf, float x, float y, uint32_t rgb = 0xdadada) {
   assert(surf);
-  if (x < 0.f || y < 0.f || x >= surf->w || y >= surf->h) {
-    return;
-  }
+//  if (x < 0.f || y < 0.f || x >= surf->w || y >= surf->h) {
+//    return;
+//  }
   uint32_t *pix = (uint32_t *)surf->pixels;
   pix[int(x) + int(y) * surf->w] = rgb;
 }
@@ -221,9 +221,121 @@ bool scan_triangle(SDL_Surface *surf, std::array<vec2f_t, 3> v, uint32_t rgb) {
   return true;
 }
 
+bool clip_line(vec2f_t &a, vec2f_t &b) {
+
+  enum {
+    CLIP_X_LO = 1,
+    CLIP_X_HI = 2,
+    CLIP_Y_LO = 4,
+    CLIP_Y_HI = 8,
+  };
+
+  const float max_x = 511.f;
+  const float max_y = 511.f;
+
+  const auto classify_x = [=](const vec2f_t &p) -> int {
+    return (p.x < 0.f ? CLIP_X_LO : 0) | (p.x > max_x ? CLIP_X_HI : 0);
+  };
+
+  const auto classify_y = [=](const vec2f_t &p) -> int {
+    return (p.y < 0.f ? CLIP_Y_LO : 0) | (p.y > max_y ? CLIP_Y_HI : 0);
+  };
+
+  const auto classify = [=](const vec2f_t &p) -> int {
+    return classify_x(p) | classify_y(p);
+  };
+
+  const int ca = classify(a);
+  const int cb = classify(b);
+
+  if (0 == (ca | cb)) {
+    // all in center, no clipping
+    return false;
+  }
+
+  const int code = ca & cb;
+  if ((code & CLIP_X_LO) || (code & CLIP_X_HI) || (code & CLIP_Y_LO) ||
+      (code & CLIP_Y_HI)) {
+    // all outside one plane
+    return true;
+  }
+
+  const auto clip_y_lo = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
+    if (cl & CLIP_Y_LO) {
+      const float dx = (vb.x - va.x) / (vb.y - va.y);
+      va.x += dx * (0.f - va.y);
+      va.y = 0.f;
+    }
+  };
+
+  const auto clip_y_hi = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
+    if (cl & CLIP_Y_HI) {
+      const float dx = (vb.x - va.x) / (vb.y - va.y);
+      va.x -= dx * (va.y - max_y);
+      va.y = max_y;
+    }
+  };
+
+  const auto clip_x_lo = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
+    if (cl & CLIP_X_LO) {
+      const float dy = (vb.y - va.y) / (vb.x - va.x);
+      va.y += dy * (0.f - va.x);
+      va.x = 0.f;
+    }
+  };
+
+  const auto clip_x_hi = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
+    if (cl & CLIP_X_HI) {
+      const float dy = (vb.y - va.y) / (vb.x - va.x);
+      va.y -= dy * (va.x - max_x);
+      va.x = max_x;
+    }
+  };
+
+  if (fabsf(b.y - a.y) > fabsf(b.x - a.x)) {
+    // clip y first because its longer
+    clip_y_lo(ca, a, b);
+    clip_y_hi(ca, a, b);
+
+    clip_y_lo(cb, b, a);
+    clip_y_hi(cb, b, a);
+
+    const int ca2 = classify_x(a);
+    clip_x_lo(ca2, a, b);
+    clip_x_hi(ca2, a, b);
+
+    const int cb2 = classify_x(a);
+    clip_x_lo(cb2, b, a);
+    clip_x_hi(cb2, b, a);
+  } else {
+    // clip x first because its longer
+    clip_x_lo(ca, a, b);
+    clip_x_hi(ca, a, b);
+
+    clip_x_lo(cb, b, a);
+    clip_x_hi(cb, b, a);
+
+    const int ca2 = classify_y(a);
+    clip_y_lo(ca2, a, b);
+    clip_y_hi(ca2, a, b);
+
+    const int cb2 = classify_y(a);
+    clip_y_lo(cb2, b, a);
+    clip_y_hi(cb2, b, a);
+  }
+
+  return false;
+}
+
 // fast fixed point line drawing
 void draw_line(SDL_Surface *surf, math::vec2f_t a, math::vec2f_t b,
                uint32_t rgb) {
+
+  if (clip_line(a, b)) {
+    // fully clipped
+    return;
+  }
+
   const float dx = b.x - a.x, dy = b.y - a.y;
   const float adx = fabsf(dx), ady = fabs(dy);
   if (fabsf(dx) > fabsf(dy)) {
