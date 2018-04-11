@@ -35,6 +35,16 @@ struct app_t {
     pix[int(x) + int(y) * surf_->w] = rgb;
   }
 
+  uint32_t wang_hash(uint32_t seed)
+  {
+      seed = (seed ^ 61) ^ (seed >> 16);
+      seed *= 9;
+      seed = seed ^ (seed >> 4);
+      seed *= 0x27d4eb2d;
+      seed = seed ^ (seed >> 15);
+      return seed;
+  }
+
   void render() {
     extern const float obj_vertex[];
     extern const uint32_t obj_index[];
@@ -61,12 +71,9 @@ struct app_t {
       for (auto &v : post) {
         v.x = 256 + v.x * 4.5f;
         v.y = 256 + v.y * 4.5f;
-#if 0
-        plot(v.x, v.y);
-#endif
       }
 
-      draw_tri(surf_, post, 0x88aabb);
+      draw_tri(surf_, post, wang_hash(i));
     }
   }
 

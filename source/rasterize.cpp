@@ -92,13 +92,13 @@ constexpr float dot(const vec2f_t &a, const vec2f_t &b) {
 }
 
 // plot a pixel to the screen
-void plot(SDL_Surface *surf, float x, float y, uint32_t rgb = 0xdadada) {
+void plot(SDL_Surface *surf, int32_t x, int32_t y, uint32_t rgb = 0xdadada) {
   assert(surf);
-//  if (x < 0.f || y < 0.f || x >= surf->w || y >= surf->h) {
-//    return;
-//  }
+  if (x < 0.f || y < 0.f || x >= surf->w || y >= surf->h) {
+    return;
+  }
   uint32_t *pix = (uint32_t *)surf->pixels;
-  pix[int(x) + int(y) * surf->w] = rgb;
+  pix[x + y * surf->w] = rgb;
 }
 
 constexpr int32_t minv(int32_t a, int32_t b) { return a < b ? a : b; }
@@ -151,12 +151,12 @@ void scan_convert(vec2f_t a, vec2f_t b, std::array<int32_t, SIZE> &span) {
 
   switch (CLIP) {
   case CLIP_SPAN_MAX_X:
-    for (uint32_t y = iay; y <= iby; ++y, x += idx) {
+    for (int32_t y = iay; y <= iby; ++y, x += idx) {
       span[y] = std::max<int32_t>(x >> 16, 0);
     }
     break;
   case CLIP_SPAN_MIN_X:
-    for (uint32_t y = iay; y <= iby; ++y, x += idx) {
+    for (int32_t y = iay; y <= iby; ++y, x += idx) {
       span[y] = std::min<int32_t>(x >> 16, screen_w);
     }
     break;
@@ -230,15 +230,17 @@ bool clip_line(vec2f_t &a, vec2f_t &b) {
     CLIP_Y_HI = 8,
   };
 
-  const float max_x = 511.f;
-  const float max_y = 511.f;
+  const float min_x = 8.f;
+  const float min_y = 8.f;
+  const float max_x = 504.f;
+  const float max_y = 504.f;
 
   const auto classify_x = [=](const vec2f_t &p) -> int {
-    return (p.x < 0.f ? CLIP_X_LO : 0) | (p.x > max_x ? CLIP_X_HI : 0);
+    return (p.x < min_x ? CLIP_X_LO : 0) | (p.x > max_x ? CLIP_X_HI : 0);
   };
 
   const auto classify_y = [=](const vec2f_t &p) -> int {
-    return (p.y < 0.f ? CLIP_Y_LO : 0) | (p.y > max_y ? CLIP_Y_HI : 0);
+    return (p.y < min_y ? CLIP_Y_LO : 0) | (p.y > max_y ? CLIP_Y_HI : 0);
   };
 
   const auto classify = [=](const vec2f_t &p) -> int {
@@ -263,8 +265,8 @@ bool clip_line(vec2f_t &a, vec2f_t &b) {
   const auto clip_y_lo = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
     if (cl & CLIP_Y_LO) {
       const float dx = (vb.x - va.x) / (vb.y - va.y);
-      va.x += dx * (0.f - va.y);
-      va.y = 0.f;
+      va.x += dx * (min_y - va.y);
+      va.y = min_y;
     }
   };
 
@@ -279,8 +281,8 @@ bool clip_line(vec2f_t &a, vec2f_t &b) {
   const auto clip_x_lo = [=](int cl, vec2f_t &va, const vec2f_t &vb) {
     if (cl & CLIP_X_LO) {
       const float dy = (vb.y - va.y) / (vb.x - va.x);
-      va.y += dy * (0.f - va.x);
-      va.x = 0.f;
+      va.y += dy * (min_x - va.x);
+      va.x = min_x;
     }
   };
 
@@ -292,37 +294,19 @@ bool clip_line(vec2f_t &a, vec2f_t &b) {
     }
   };
 
-  if (fabsf(b.y - a.y) > fabsf(b.x - a.x)) {
-    // clip y first because its longer
-    clip_y_lo(ca, a, b);
-    clip_y_hi(ca, a, b);
+  clip_x_lo(ca, a, b);
+  clip_x_hi(ca, a, b);
 
-    clip_y_lo(cb, b, a);
-    clip_y_hi(cb, b, a);
+  clip_x_lo(cb, b, a);
+  clip_x_hi(cb, b, a);
 
-    const int ca2 = classify_x(a);
-    clip_x_lo(ca2, a, b);
-    clip_x_hi(ca2, a, b);
+  const int ca2 = classify_y(a);
+  clip_y_lo(ca2, a, b);
+  clip_y_hi(ca2, a, b);
 
-    const int cb2 = classify_x(a);
-    clip_x_lo(cb2, b, a);
-    clip_x_hi(cb2, b, a);
-  } else {
-    // clip x first because its longer
-    clip_x_lo(ca, a, b);
-    clip_x_hi(ca, a, b);
-
-    clip_x_lo(cb, b, a);
-    clip_x_hi(cb, b, a);
-
-    const int ca2 = classify_y(a);
-    clip_y_lo(ca2, a, b);
-    clip_y_hi(ca2, a, b);
-
-    const int cb2 = classify_y(a);
-    clip_y_lo(cb2, b, a);
-    clip_y_hi(cb2, b, a);
-  }
+  const int cb2 = classify_y(b);
+  clip_y_lo(cb2, b, a);
+  clip_y_hi(cb2, b, a);
 
   return false;
 }
@@ -330,7 +314,7 @@ bool clip_line(vec2f_t &a, vec2f_t &b) {
 // fast fixed point line drawing
 void draw_line(SDL_Surface *surf, math::vec2f_t a, math::vec2f_t b,
                uint32_t rgb) {
-
+  // clip line to screen
   if (clip_line(a, b)) {
     // fully clipped
     return;
@@ -338,20 +322,55 @@ void draw_line(SDL_Surface *surf, math::vec2f_t a, math::vec2f_t b,
 
   const float dx = b.x - a.x, dy = b.y - a.y;
   const float adx = fabsf(dx), ady = fabs(dy);
+
+  static const float fract = float(1u << 16);
+
+  // select the longest axis
   if (fabsf(dx) > fabsf(dy)) {
-    if (b.x < a.x)
-      std::swap(a, b);
-    const int32_t iy = int32_t(float(0x10000) * ((b.y - a.y) / adx));
-    int32_t y = int32_t(a.y * float(0x10000));
-    for (int32_t x = a.x; x < b.x; ++x, y += iy) {
+
+    // sort vertices in y axis
+    if (b.x < a.x) std::swap(a, b);
+    // compute dy/dx
+    const float ndy = (b.y - a.y) / adx;
+#if 1
+    // align at pixel border
+    {
+      const float fx = floorf(a.x);
+      a.y -= ndy * (a.x - fx);
+      a.x = fx - 1;
+    }
+#endif
+    // convert y itterator to fixed point
+    const int32_t iy = int32_t(ndy * fract);
+    int32_t y = int32_t(a.y * fract);
+    // quantize start and end locations
+    const int32_t iax = int32_t(a.x);
+    const int32_t ibx = int32_t(b.x);
+    // raster loop
+    for (int32_t x = iax; x < ibx; ++x, y += iy) {
       plot(surf, x, y >> 16, rgb);
     }
   } else {
-    if (b.y < a.y)
-      std::swap(a, b);
-    const int32_t ix = int32_t(float(0x10000) * ((b.x - a.x) / ady));
-    int32_t x = int32_t(a.x * float(0x10000));
-    for (int32_t y = a.y; y < b.y; ++y, x += ix) {
+    // sort vertices in y axis
+    if (b.y < a.y) std::swap(a, b);
+    // compute dx/dy
+    const float ndx = (b.x - a.x) / ady;
+    // convert x itterator to fixed point
+    const int32_t ix = int32_t(ndx * fract);
+    int32_t x = int32_t(a.x * fract);
+#if 1
+    // align at pixel border
+    {
+      const float fy = floorf(a.y);
+      a.x -= ndx * (a.y - fy);
+      a.y = fy;
+    }
+#endif
+    // quantize start and end locations
+    const int32_t iay = int32_t(a.y);
+    const int32_t iby = int32_t(b.y);
+    // raster loop
+    for (int32_t y = iay; y < iby; ++y, x += ix) {
       plot(surf, x >> 16, y, rgb);
     }
   }
@@ -368,13 +387,14 @@ void draw_tri(SDL_Surface *surf, const std::array<math::vec4f_t, 3> &t,
   };
 
   if (!is_backface(tri[0], tri[2], tri[1])) {
-
-    scan_triangle(surf, tri, 0x335577);
 #if 1
+    scan_triangle(surf, tri, rgb);
+#endif
+#if 0
     for (uint32_t j = 0; j < 3; ++j) {
       const math::vec4f_t &a = t[j];
       const math::vec4f_t &b = t[j == 2 ? 0 : j + 1];
-      draw_line(surf, math::vec2(a.x, a.y), math::vec2(b.x, b.y), 0x446688);
+      draw_line(surf, math::vec2(a.x, a.y), math::vec2(b.x, b.y), 0xffffff);
     }
 #endif
   }
